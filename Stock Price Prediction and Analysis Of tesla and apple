@@ -1,0 +1,113 @@
+import yfinance as yf
+import pandas as pd
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.graph_objs as go
+import numpy as np
+
+# Fetching stock data
+symbols = ['TSLA', 'AAPL']
+data = {}
+for symbol in symbols:
+    data[symbol] = yf.download(symbol, start='2019-01-01', end='2024-01-01')
+
+# Calculate Technical Indicators
+def calculate_technical_indicators(df):
+    df['SMA_20'] = df['Close'].rolling(window=20).mean()  # 20-day simple moving average
+    df['SMA_50'] = df['Close'].rolling(window=50).mean()  # 50-day simple moving average
+    df['RSI'] = compute_rsi(df['Close'], 14)  # 14-day RSI
+    df['MACD'], df['MACD_Signal'] = compute_macd(df['Close'])  # MACD
+    df['Upper Band'], df['Lower Band'] = compute_bollinger_bands(df['Close'])  # Bollinger Bands
+    return df
+
+def compute_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def compute_macd(series):
+    exp1 = series.ewm(span=12, adjust=False).mean()
+    exp2 = series.ewm(span=26, adjust=False).mean()
+    macd = exp1 - exp2
+    macd_signal = macd.ewm(span=9, adjust=False).mean()
+    return macd, macd_signal
+
+def compute_bollinger_bands(series, window=20, num_sd=2):
+    rolling_mean = series.rolling(window=window).mean()
+    rolling_std = series.rolling(window=window).std()
+    upper_band = rolling_mean + (rolling_std * num_sd)
+    lower_band = rolling_mean - (rolling_std * num_sd)
+    return upper_band, lower_band
+
+# Initialize the Dash app
+app = dash.Dash(__name__)
+
+# Layout of the dashboard
+app.layout = html.Div([
+    html.H1("Stock Dashboard for TSLA and AAPL", style={'textAlign': 'center'}),
+
+    # Dropdown for selecting stock
+    dcc.Dropdown(
+        id='stock-dropdown',
+        options=[
+            {'label': 'Tesla (TSLA)', 'value': 'TSLA'},
+            {'label': 'Apple (AAPL)', 'value': 'AAPL'}
+        ],
+        value='TSLA',
+        clearable=False,
+        style={'width': '50%', 'margin': 'auto'}
+    ),
+
+    # Graphs for stock prices and technical indicators
+    dcc.Graph(id='closing-price-graph'),
+    dcc.Graph(id='technical-indicators-graph'),
+
+    # Simulated market sentiment
+    html.Div(id='market-sentiment', style={'textAlign': 'center', 'fontSize': '20px', 'margin': '20px'})
+])
+
+# Callback for updating graphs
+@app.callback(
+    Output('closing-price-graph', 'figure'),
+    Output('technical-indicators-graph', 'figure'),
+    Output('market-sentiment', 'children'),
+    Input('stock-dropdown', 'value')
+)
+def update_graph(selected_stock):
+    df = data[selected_stock]
+    df = calculate_technical_indicators(df)
+
+    # Closing price graph
+    closing_price_fig = go.Figure()
+    closing_price_fig.add_trace(go.Scatter(x=df.index, y=df['Close'], mode='lines', name='Close Price', line=dict(color='blue')))
+    closing_price_fig.update_layout(title=f'{selected_stock} Closing Prices', xaxis_title='Date', yaxis_title='Price (USD)')
+
+    # Technical indicators graph
+    technical_fig = go.Figure()
+    technical_fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], mode='lines', name='20-Day SMA', line=dict(color='orange')))
+    technical_fig.add_trace(go.Scatter(x=df.index, y=df['SMA_50'], mode='lines', name='50-Day SMA', line=dict(color='green')))
+    technical_fig.add_trace(go.Scatter(x=df.index, y=df['Upper Band'], mode='lines', name='Upper Bollinger Band', line=dict(color='red', dash='dash')))
+    technical_fig.add_trace(go.Scatter(x=df.index, y=df['Lower Band'], mode='lines', name='Lower Bollinger Band', line=dict(color='red', dash='dash')))
+    technical_fig.update_layout(title=f'Technical Indicators for {selected_stock}', xaxis_title='Date', yaxis_title='Price (USD)')
+
+    # Simulated market sentiment
+    sentiment = fetch_market_sentiment(selected_stock)
+    sentiment_text = f"Market Sentiment for {selected_stock}:\n" + "\n".join(sentiment)
+    
+    return closing_price_fig, technical_fig, sentiment_text
+
+def fetch_market_sentiment(symbol):
+    # Simulated sentiment headlines for demonstration purposes
+    return [
+        f"{symbol} stock rallies as earnings beat expectations.",
+        f"{symbol} faces regulatory scrutiny over new products.",
+        f"{symbol} sees increased competition from emerging brands."
+    ]
+
+# Run the app
+if __name__ == '__main__':
+    app.run_server(debug=True)
